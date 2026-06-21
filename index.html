@@ -467,6 +467,7 @@ async function load(sid, fromRaw, toRaw){
     const needed = to - from + 1;
     let   all    = [];
     let   page   = 1;
+    let   bismillahAdded = false;
 
     while(true){
       if(reqId !== me) return;
@@ -474,8 +475,7 @@ async function load(sid, fromRaw, toRaw){
       const url = `${API}/verses/by_chapter/${sid}`
         + `?language=id&words=true&word_fields=text_uthmani,char_type_name`
         + `&fields=text_uthmani,verse_number`
-        + `&per_page=${PER}&page=${page}`
-        + `&verse_start=${from}&verse_end=${to}`;
+        + `&per_page=${PER}&page=${page}`;
 
       const r = await fetch(url);
       if(!r.ok) throw new Error('HTTP '+r.status);
@@ -485,8 +485,12 @@ async function load(sid, fromRaw, toRaw){
       const batch = d.verses || [];
       if(!batch.length) break;
 
-      /* Bismillah hanya di halaman pertama, ayat pertama */
-      if(page === 1){
+      /* Filter ayat sesuai range yang dipilih user */
+      const filtered = batch.filter(v => v.verse_number >= from && v.verse_number <= to);
+
+      /* Bismillah hanya sekali, sebelum ayat pertama yang ditampilkan */
+      if(filtered.length && !bismillahAdded){
+        bismillahAdded = true;
         if(meta && meta.id !== 9 && meta.id !== 1 && from === 1){
           const bc = document.createElement('div');
           bc.className = 'bismillah';
@@ -498,13 +502,21 @@ async function load(sid, fromRaw, toRaw){
         }
       }
 
-      /* Append card-card ayat ke DOM (incremental, langsung terlihat) */
-      const frag = document.createDocumentFragment();
-      batch.forEach(v => frag.appendChild(makeCard(v)));
-      list.appendChild(frag);
+      /* Append card ayat yang sudah difilter ke DOM */
+      if(filtered.length){
+        const frag = document.createDocumentFragment();
+        filtered.forEach(v => frag.appendChild(makeCard(v)));
+        list.appendChild(frag);
+        all = all.concat(filtered);
+        setProg(Math.min(95, Math.round(all.length / needed * 100)), true);
+      }
 
-      all = all.concat(batch);
-      setProg(Math.min(95, Math.round(all.length / needed * 100)), true);
+      /* Jika seluruh ayat yang dicari sudah terkumpul, stop */
+      if(all.length >= needed) break;
+
+      /* Jika batch sudah melewati verse_number terakhir yang dicari, stop */
+      const lastInBatch = batch[batch.length - 1]?.verse_number || 0;
+      if(lastInBatch >= to) break;
 
       /* Cek apakah masih ada halaman */
       const pg = d.meta?.pagination || d.pagination || {};
